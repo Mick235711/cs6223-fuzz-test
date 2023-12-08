@@ -9,6 +9,8 @@ add_subdirectory(fuzztest)
 
 enable_testing()
 
+fuzztest_setup_fuzzing_flags()
+
 include(GoogleTest)
 
 add_executable(
@@ -34,3 +36,14 @@ target_include_directories(range_view_type_test PRIVATE ../../range-v3/include/)
 
 link_fuzztest(range_view_type_test)
 gtest_discover_tests(range_view_type_test)
+
+add_executable(
+    range_view_fuzz
+    range_view_fuzz.cpp
+    ../../range-v3/include/range/v3/all.hpp
+)
+
+target_include_directories(range_view_fuzz PRIVATE ../../range-v3/include/)
+
+link_fuzztest(range_view_fuzz)
+gtest_discover_tests(range_view_fuzz)
