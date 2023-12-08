@@ -56,7 +56,7 @@ using random_ranges = typelist<
 """
 initials = [
     "bool", "int", "unsigned int", "long", "long long", "char", "signed char", "unsigned char",
-    "std::byte", "float", "double", "std::size_t", "std::string",
+    "std::byte", "float", "double", "std::size_t", "std::string", "std::string_view",
     "zstring", "czstring",
     "std::views::iota", "std::views::empty"
 ]
