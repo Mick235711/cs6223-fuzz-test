@@ -17,3 +17,11 @@ add_executable(
 
 link_fuzztest(range_property)
 gtest_discover_tests(range_property)
+
+add_executable(
+    range_view_type_test
+    range_view_type_test.cpp
+)
+
+link_fuzztest(range_view_type_test)
+gtest_discover_tests(range_view_type_test)

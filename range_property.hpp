@@ -468,7 +468,8 @@ public:
     constexpr R base() && { return std::move(r_); }
 
     constexpr auto begin() { return underlying_t(ranges::begin(r_)); }
-    constexpr auto begin() const requires ranges::range<const R> { return underlying_t(ranges::begin(r_)); }
+    constexpr auto begin() const requires ranges::range<const R>
+    { return decay_to_iterator<ranges::iterator_t<const R>, lower_category>(ranges::begin(r_)); }
 
     constexpr auto end()
     {
@@ -482,7 +483,7 @@ public:
     constexpr auto end() const requires ranges::range<const R>
     {
         if constexpr (ranges::common_range<const R>) {
-            return underlying_t(ranges::end(r_));
+            return decay_to_iterator<ranges::iterator_t<const R>, lower_category>(ranges::end(r_));
         } else {
             return ranges::end(r_);
         }
@@ -605,7 +606,7 @@ template<ranges::range R, typename NewValueType = ranges::range_value_t<R>, type
 class convert_to_view : public ranges::view_interface<convert_to_view<R, NewValueType, NewReference>>
 {
 private:
-    mutable R r_ = R();
+    R r_ = R();
     using underlying_t = convert_to_iterator<ranges::iterator_t<R>, NewValueType, NewReference>;
 
 public:
@@ -615,11 +616,11 @@ public:
     constexpr R base() const & requires std::copy_constructible<R> { return r_; }
     constexpr R base() && { return std::move(r_); }
 
-    constexpr auto begin() requires (EnableConstIterable != property::ForceEnable) { return underlying_t(ranges::begin(r_)); }
+    constexpr auto begin() { return underlying_t(ranges::begin(r_)); }
     constexpr auto begin() const requires ((ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
-    { return underlying_t(ranges::begin(r_)); }
+    { return convert_to_iterator<ranges::iterator_t<const R>, NewValueType, NewReference>(ranges::begin(r_)); }
 
-    constexpr auto end() requires (EnableConstIterable != property::ForceEnable)
+    constexpr auto end()
     {
         if constexpr (ranges::common_range<R>) {
             return underlying_t(ranges::end(r_));
@@ -631,7 +632,7 @@ public:
     constexpr auto end() const requires ((ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
     {
         if constexpr (ranges::common_range<const R>) {
-            return underlying_t(ranges::end(r_));
+            return convert_to_iterator<ranges::iterator_t<const R>, NewValueType, NewReference>(ranges::end(r_));
         } else {
             return ranges::end(r_);
         }
@@ -724,6 +725,16 @@ template<typename lower_category>
 decltype(auto) decay_to_lower(ranges::input_range auto&& R)
 {
     return decay_to_view<std::decay_t<decltype(R)>, lower_category>(FWD(R));
+}
+template<typename lower_category>
+decltype(auto) decay_to_lower_opt(ranges::input_range auto&& R)
+{
+    using Range = std::decay_t<decltype(R)>;
+    if constexpr (std::derived_from<iter_category<ranges::iterator_t<Range>>, lower_category>) {
+        return decay_to_view<Range, lower_category>(FWD(R));
+    } else {
+        return FWD(R);
+    }
 }
 
 // common
