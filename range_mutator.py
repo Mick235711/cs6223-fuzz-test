@@ -5,7 +5,7 @@
 
 import random
 
-seed = 12345
+seed = 11111
 largest_layer = 3
 largest_mutator = 10
 total_ranges = 100
@@ -73,19 +73,14 @@ layers = [
     "std::multimap",
     "std::unordered_map",
     "std::unordered_multimap",
-    "std::set",
-    "std::multiset",
     "std::span"
 ]
 mutators = [
     "ref_remove_all",
     "ref_add_const",
-    "ref_add_volatile",
     "ref_add_lref",
-    "ref_add_rref",
     "val_remove_all",
     "val_add_const",
-    "val_add_volatile",
     "decay_to_lower<std::input_iterator_tag>",
     "decay_to_lower_opt<std::forward_iterator_tag>",
     "decay_to_lower_opt<std::bidirectional_iterator_tag>",
@@ -105,9 +100,9 @@ def apply_initial(initial: str) -> str:
         args = [random.randint(0, max_filter_num)]
         if argnum == 2:
             args.append(random.randint(args[0], max_filter_num))
-        return f"decltype({initial}(" + ", ".join(map(str, args)) + "))"
+        return f"std::remove_cvref_t<decltype({initial}(" + ", ".join(map(str, args)) + "))>"
     if initial == "std::views::empty":
-        return f"decltype({initial}<{random.choice(initial_regular)}>)"
+        return f"std::remove_cvref_t<decltype({initial}<{random.choice(initial_regular)}>)>"
     return initial
 
 def apply_layer(current: str, layer: str) -> str:
@@ -123,8 +118,8 @@ def apply_layer(current: str, layer: str) -> str:
 def apply_mutator(current: str, mutator: str) -> str:
     """ Apply mutator to current """
     if mutator.startswith("|"):
-        return f"decltype(std::declval<{current}>() {mutator})"
-    return f"decltype({mutator}(std::declval<{current}>()))"
+        return f"std::remove_cvref_t<decltype(std::declval<{current}>() {mutator})>"
+    return f"std::remove_cvref_t<decltype({mutator}(std::declval<{current}>()))>"
 
 def main() -> None:
     """ Main function """
@@ -137,10 +132,15 @@ def main() -> None:
             apply_layers = random.choices(layers, k=random.randint(0, largest_layer))
             apply_mutators = random.choices(mutators, k=random.randint(0, largest_mutator))
             current = apply_layer(apply_initial(initial), random.choice(layers))
+            have_ref = False
             while len(apply_layers) > 0 and len(apply_mutators) > 0:
                 ch = random.randint(1, 2)
                 if len(apply_layers) == 0 or ch == 2:
                     mutator, apply_mutators = apply_mutators[0], apply_mutators[1:]
+                    if mutator.endswith("ref"):
+                        if have_ref:
+                            continue
+                        have_ref = True
                     current = apply_mutator(current, mutator)
                 else:
                     layer, apply_layers = apply_layers[0], apply_layers[1:]

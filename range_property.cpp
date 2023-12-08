@@ -7,34 +7,10 @@
 #include <list>
 #include <forward_list>
 #include <ranges>
+#include "demangle.hpp"
 #define FWD(...) static_cast<decltype(__VA_ARGS__)&&>(__VA_ARGS__)
-
-// demangle
-#include <cstdlib>
-#include <memory>
-#include <cxxabi.h>
-#include <typeinfo>
-
-std::string demangle(const char* name) {
-    int status = -4; // some arbitrary value to eliminate the compiler warning
-
-    // enable c++11 by passing the flag -std=c++11 to g++
-    std::unique_ptr<char, void(*)(void*)> res {
-        abi::__cxa_demangle(name, NULL, NULL, &status),
-        std::free
-    };
-
-    return (status==0) ? res.get() : name ;
-}
-
-template <class T>
-std::string type_str(const T& t) {
-    return demangle(typeid(t).name());
-}
-template <class T>
-std::string type_str() {
-    return demangle(typeid(T).name());
-}
+namespace ranges = std::ranges;
+namespace views = std::views;
 
 void test_with_ranges(auto F)
 {
@@ -91,12 +67,6 @@ TEST(MyTestSuite, ValueTypeTests) {
         auto r3 = val_add_volatile(FWD(R)); using R3 = std::remove_cvref_t<decltype(r3)>;
         EXPECT_TRUE((is_deep_volatile_v<ranges::range_value_t<R3>>))
             << (type_str<decltype(R)>() + " -> " + type_str<ranges::range_value_t<R3>>());
-        auto r4 = val_add_lref(FWD(R)); using R4 = std::remove_cvref_t<decltype(r4)>;
-        EXPECT_TRUE((std::is_lvalue_reference_v<ranges::range_value_t<R4>>))
-            << (type_str<decltype(R)>() + " -> " + type_str<ranges::range_value_t<R4>>());
-        auto r5 = val_add_rref(FWD(R)); using R5 = std::remove_cvref_t<decltype(r5)>;
-        EXPECT_TRUE((std::is_rvalue_reference_v<ranges::range_value_t<R5>>))
-            << (type_str<decltype(R)>() + " -> " + type_str<ranges::range_value_t<R5>>());
     });
 }
 

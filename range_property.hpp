@@ -369,8 +369,6 @@ namespace view_future {
 #undef REL_CMP
 }
 
-namespace ranges = std::ranges;
-namespace views = std::views;
 #define FWD(...) static_cast<decltype(__VA_ARGS__)&&>(__VA_ARGS__)
 
 template<std::input_or_output_iterator I>
@@ -378,6 +376,9 @@ using iter_trait = std::_ITER_TRAITS<I>;
 
 template<std::input_or_output_iterator I>
 using iter_category = std::_ITER_CONCEPT<I>;
+
+template<std::ranges::range R>
+using range_category = std::_ITER_CONCEPT<std::ranges::iterator_t<R>>;
 
 // decay a range to arbitrary lower category
 template<std::input_or_output_iterator It, typename lower_category>
@@ -438,6 +439,7 @@ public:
     using value_type = std::iter_value_t<It>;
     using difference_type = std::iter_difference_t<It>;
     using reference = std::iter_reference_t<It>;
+    using pointer = iter_trait<It>::pointer;
 };
 
 template<std::input_or_output_iterator It1, typename lower_category1, std::three_way_comparable_with<It1> It2, typename lower_category2>
@@ -452,13 +454,13 @@ constexpr decay_to_iterator<It2, lower_category2>
 operator+(std::iter_difference_t<It2> n, const decay_to_iterator<It2, lower_category2>& x)
 { return x + n; }
 
-template<ranges::range R, typename lower_category>
-requires std::derived_from<iter_category<ranges::iterator_t<R>>, lower_category>
-class decay_to_view : public ranges::view_interface<decay_to_view<R, lower_category>>
+template<std::ranges::range R, typename lower_category>
+requires std::derived_from<range_category<R>, lower_category>
+class decay_to_view : public std::ranges::view_interface<decay_to_view<R, lower_category>>
 {
 private:
     R r_ = R();
-    using underlying_t = decay_to_iterator<ranges::iterator_t<R>, lower_category>;
+    using underlying_t = decay_to_iterator<std::ranges::iterator_t<R>, lower_category>;
 
 public:
     decay_to_view() requires std::default_initializable<R> = default;
@@ -467,34 +469,34 @@ public:
     constexpr R base() const & requires std::copy_constructible<R> { return r_; }
     constexpr R base() && { return std::move(r_); }
 
-    constexpr auto begin() { return underlying_t(ranges::begin(r_)); }
-    constexpr auto begin() const requires ranges::range<const R>
-    { return decay_to_iterator<ranges::iterator_t<const R>, lower_category>(ranges::begin(r_)); }
+    constexpr auto begin() { return underlying_t(std::ranges::begin(r_)); }
+    constexpr auto begin() const requires std::ranges::range<const R>
+    { return decay_to_iterator<std::ranges::iterator_t<const R>, lower_category>(std::ranges::begin(r_)); }
 
     constexpr auto end()
     {
-        if constexpr (ranges::common_range<R>) {
-            return underlying_t(ranges::end(r_));
+        if constexpr (std::ranges::common_range<R>) {
+            return underlying_t(std::ranges::end(r_));
         } else {
-            return ranges::end(r_);
+            return std::ranges::end(r_);
         }
     }
 
-    constexpr auto end() const requires ranges::range<const R>
+    constexpr auto end() const requires std::ranges::range<const R>
     {
-        if constexpr (ranges::common_range<const R>) {
-            return decay_to_iterator<ranges::iterator_t<const R>, lower_category>(ranges::end(r_));
+        if constexpr (std::ranges::common_range<const R>) {
+            return decay_to_iterator<std::ranges::iterator_t<const R>, lower_category>(std::ranges::end(r_));
         } else {
-            return ranges::end(r_);
+            return std::ranges::end(r_);
         }
     }
 
-    constexpr auto size() requires ranges::sized_range<R> { return ranges::size(r_); }
-    constexpr auto size() const requires ranges::sized_range<const R> { return ranges::size(r_); }
+    constexpr auto size() requires std::ranges::sized_range<R> { return std::ranges::size(r_); }
+    constexpr auto size() const requires std::ranges::sized_range<const R> { return std::ranges::size(r_); }
 };
 
-template<ranges::range R, typename lower_category>
-inline constexpr bool ranges::enable_borrowed_range<decay_to_view<R, lower_category>> = ranges::enable_borrowed_range<R>;
+template<std::ranges::range R, typename lower_category>
+inline constexpr bool std::ranges::enable_borrowed_range<decay_to_view<R, lower_category>> = std::ranges::enable_borrowed_range<R>;
 
 // custom sentinel that is simply a wrapper
 template<std::semiregular S>
@@ -516,6 +518,7 @@ private:
 
 // wrap a range with a certain value_type/reference
 template<std::input_or_output_iterator It, typename NewValueType = std::iter_value_t<It>, typename NewReference = std::iter_reference_t<It>>
+requires std::is_object_v<NewValueType>
 class convert_to_iterator
 {
 public:
@@ -530,7 +533,7 @@ public:
     constexpr explicit convert_to_iterator(It it) : current{std::move(it)} {}
     constexpr const It& base() const & noexcept { return current; }
     constexpr It base() && { return std::move(current); }
-    constexpr reference operator*() const { return NewReference{*current}; }
+    constexpr reference operator*() const { return (NewReference)*current; }
 
     constexpr convert_to_iterator& operator++() { ++current; return *this; }
     constexpr convert_to_iterator operator++(int) { convert_to_iterator tmp = *this; ++current; return tmp; }
@@ -566,11 +569,21 @@ public:
     template<std::semiregular S>
     friend constexpr std::iter_difference_t<It>
     operator-(const convert_to_iterator& x, const custom_sentinel_t<S>& y)
+    requires std::sized_sentinel_for<S, It>
     { return x.base() - y.base(); }
     template<std::semiregular S>
     friend constexpr std::iter_difference_t<It>
     operator-(const custom_sentinel_t<S>& x, const convert_to_iterator& y)
+    requires std::sized_sentinel_for<S, It>
     { return x.base() - y.base(); }
+    friend constexpr std::iter_difference_t<It>
+    operator-(const convert_to_iterator& x, const It& y)
+    requires std::sized_sentinel_for<It, It>
+    { return x.base() - y; }
+    friend constexpr std::iter_difference_t<It>
+    operator-(const It& x, const convert_to_iterator& y)
+    requires std::sized_sentinel_for<It, It>
+    { return x - y.base(); }
 
 private:
     It current{};
@@ -585,6 +598,7 @@ public:
     using value_type = NewValueType;
     using difference_type = std::iter_difference_t<It>;
     using reference = NewReference;
+    using pointer = iter_trait<It>::pointer;
 };
 
 template<std::input_or_output_iterator It1, typename V1, typename R1, std::three_way_comparable_with<It1> It2, typename V2, typename R2>
@@ -601,13 +615,14 @@ operator+(std::iter_difference_t<It2> n, const convert_to_iterator<It2, V2, R2>&
 
 enum class property { ForceDisable, Passive, ForceEnable };
 
-template<ranges::range R, typename NewValueType = ranges::range_value_t<R>, typename NewReference = ranges::range_reference_t<R>,
+template<std::ranges::range R, typename NewValueType = std::ranges::range_value_t<R>, typename NewReference = std::ranges::range_reference_t<R>,
          property EnableSize = property::Passive, property EnableConstIterable = property::Passive, property EnableBorrowed = property::Passive>
-class convert_to_view : public ranges::view_interface<convert_to_view<R, NewValueType, NewReference>>
+requires std::is_object_v<NewValueType>
+class convert_to_view : public std::ranges::view_interface<convert_to_view<R, NewValueType, NewReference>>
 {
 private:
     R r_ = R();
-    using underlying_t = convert_to_iterator<ranges::iterator_t<R>, NewValueType, NewReference>;
+    using underlying_t = convert_to_iterator<std::ranges::iterator_t<R>, NewValueType, NewReference>;
 
 public:
     convert_to_view() requires std::default_initializable<R> = default;
@@ -616,36 +631,36 @@ public:
     constexpr R base() const & requires std::copy_constructible<R> { return r_; }
     constexpr R base() && { return std::move(r_); }
 
-    constexpr auto begin() { return underlying_t(ranges::begin(r_)); }
-    constexpr auto begin() const requires ((ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
-    { return convert_to_iterator<ranges::iterator_t<const R>, NewValueType, NewReference>(ranges::begin(r_)); }
+    constexpr auto begin() { return underlying_t(std::ranges::begin(r_)); }
+    constexpr auto begin() const requires ((std::ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
+    { return convert_to_iterator<std::ranges::iterator_t<const R>, NewValueType, NewReference>(std::ranges::begin(r_)); }
 
     constexpr auto end()
     {
-        if constexpr (ranges::common_range<R>) {
-            return underlying_t(ranges::end(r_));
+        if constexpr (std::ranges::common_range<R>) {
+            return underlying_t(std::ranges::end(r_));
         } else {
-            return ranges::end(r_);
+            return std::ranges::end(r_);
         }
     }
 
-    constexpr auto end() const requires ((ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
+    constexpr auto end() const requires ((std::ranges::range<const R> && (EnableConstIterable != property::ForceDisable)) || (EnableConstIterable == property::ForceEnable))
     {
-        if constexpr (ranges::common_range<const R>) {
-            return convert_to_iterator<ranges::iterator_t<const R>, NewValueType, NewReference>(ranges::end(r_));
+        if constexpr (std::ranges::common_range<const R>) {
+            return convert_to_iterator<std::ranges::iterator_t<const R>, NewValueType, NewReference>(std::ranges::end(r_));
         } else {
-            return ranges::end(r_);
+            return std::ranges::end(r_);
         }
     }
 
-    constexpr auto size() requires (ranges::sized_range<R> && (EnableSize == property::Passive)) { return ranges::size(r_); }
-    constexpr auto size() const requires (ranges::sized_range<const R> && (EnableSize == property::Passive)) { return ranges::size(r_); }
-    constexpr auto size() const requires (EnableSize == property::ForceEnable) { return ranges::distance(r_); }
+    constexpr auto size() requires (std::ranges::sized_range<R> && (EnableSize == property::Passive)) { return std::ranges::size(r_); }
+    constexpr auto size() const requires (std::ranges::sized_range<const R> && (EnableSize == property::Passive)) { return std::ranges::size(r_); }
+    constexpr auto size() const requires (EnableSize == property::ForceEnable) { return std::ranges::distance(r_); }
 };
 
-template<ranges::range R, typename NewValueType, typename NewReference, property EnableSize, property EnableConstIterable, property EnableBorrowed>
-inline constexpr bool ranges::enable_borrowed_range<convert_to_view<R, NewValueType, NewReference, EnableSize, EnableConstIterable, EnableBorrowed>> =
-    EnableBorrowed == property::Passive ? ranges::enable_borrowed_range<R> : (EnableBorrowed == property::ForceEnable);
+template<std::ranges::range R, typename NewValueType, typename NewReference, property EnableSize, property EnableConstIterable, property EnableBorrowed>
+inline constexpr bool std::ranges::enable_borrowed_range<convert_to_view<R, NewValueType, NewReference, EnableSize, EnableConstIterable, EnableBorrowed>> =
+    EnableBorrowed == property::Passive ? std::ranges::enable_borrowed_range<R> : (EnableBorrowed == property::ForceEnable);
 
 template<typename T>
 using add_deep_const_t = std::conditional_t<
@@ -666,125 +681,120 @@ using add_deep_volatile_t = std::conditional_t<
 
 // reference
 // manipulation: remove all qualifier, +const, +volatile, +&, +&&
-decltype(auto) ref_remove_all(ranges::range auto&& R)
+decltype(auto) ref_remove_all(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, std::remove_cvref_t<ranges::range_reference_t<Range>>>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::remove_cvref_t<std::ranges::range_reference_t<Range>>>(FWD(R));
 }
-decltype(auto) ref_add_const(ranges::range auto&& R)
+decltype(auto) ref_add_const(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, add_deep_const_t<ranges::range_reference_t<Range>>>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, add_deep_const_t<std::ranges::range_reference_t<Range>>>(FWD(R));
 }
-decltype(auto) ref_add_volatile(ranges::range auto&& R)
+decltype(auto) ref_add_volatile(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, add_deep_volatile_t<ranges::range_reference_t<Range>>>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, add_deep_volatile_t<std::ranges::range_reference_t<Range>>>(FWD(R));
 }
-decltype(auto) ref_add_lref(ranges::range auto&& R)
+decltype(auto) ref_add_lref(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, std::add_lvalue_reference_t<ranges::range_reference_t<Range>>>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::add_lvalue_reference_t<std::ranges::range_reference_t<Range>>>(FWD(R));
 }
-decltype(auto) ref_add_rref(ranges::range auto&& R)
+decltype(auto) ref_add_rref(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, std::add_rvalue_reference_t<std::remove_reference_t<ranges::range_reference_t<Range>>>>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::add_rvalue_reference_t<std::remove_reference_t<std::ranges::range_reference_t<Range>>>>(FWD(R));
 }
 
 // value type
 // manipulation same as reference
-decltype(auto) val_remove_all(ranges::range auto&& R)
+decltype(auto) val_remove_all(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, std::remove_cvref_t<ranges::range_value_t<Range>>>(FWD(R));
+    return convert_to_view<Range, std::remove_cvref_t<std::ranges::range_value_t<Range>>>(FWD(R));
 }
-decltype(auto) val_add_const(ranges::range auto&& R)
+decltype(auto) val_add_const(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, add_deep_const_t<ranges::range_value_t<Range>>>(FWD(R));
+    return convert_to_view<Range, add_deep_const_t<std::ranges::range_value_t<Range>>>(FWD(R));
 }
-decltype(auto) val_add_volatile(ranges::range auto&& R)
+decltype(auto) val_add_volatile(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, add_deep_volatile_t<ranges::range_value_t<Range>>>(FWD(R));
-}
-decltype(auto) val_add_lref(ranges::range auto&& R)
-{
-    using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, std::add_lvalue_reference_t<ranges::range_value_t<Range>>>(FWD(R));
-}
-decltype(auto) val_add_rref(ranges::range auto&& R)
-{
-    using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, std::add_rvalue_reference_t<ranges::range_value_t<Range>>>(FWD(R));
+    return convert_to_view<Range, add_deep_volatile_t<std::ranges::range_value_t<Range>>>(FWD(R));
 }
 
 // category
 template<typename lower_category>
-decltype(auto) decay_to_lower(ranges::input_range auto&& R)
+decltype(auto) decay_to_lower(std::ranges::input_range auto&& R)
 {
     return decay_to_view<std::decay_t<decltype(R)>, lower_category>(FWD(R));
 }
 template<typename lower_category>
-decltype(auto) decay_to_lower_opt(ranges::input_range auto&& R)
+decltype(auto) decay_to_lower_opt(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    if constexpr (std::derived_from<iter_category<ranges::iterator_t<Range>>, lower_category>) {
-        return decay_to_view<Range, lower_category>(FWD(R));
+    if constexpr (std::ranges::input_range<Range>) {
+        if constexpr (std::derived_from<range_category<Range>, lower_category>) {
+            return decay_to_view<Range, lower_category>(FWD(R));
+        } else {
+            return FWD(R);
+        }
     } else {
         return FWD(R);
     }
 }
 
 // common
-decltype(auto) to_uncommon(ranges::range auto&& R)
+decltype(auto) to_uncommon(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
     auto V = convert_to_view<Range>(FWD(R));
-    return ranges::subrange{V.begin(), custom_sentinel_t{V.end()}};
+    return std::ranges::subrange{V.begin(), custom_sentinel_t{V.end()}};
 }
-decltype(auto) to_common(ranges::range auto&& R)
-{ return views::common(FWD(R)); }
+decltype(auto) to_common(std::ranges::range auto&& R)
+{ return std::views::common(FWD(R)); }
 
 // sized
-decltype(auto) to_unsized(ranges::range auto&& R)
+decltype(auto) to_unsized(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::ForceDisable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::ForceDisable>(FWD(R));
 }
-decltype(auto) to_sized(ranges::range auto&& R)
+decltype(auto) to_sized(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::ForceEnable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::ForceEnable>(FWD(R));
 }
 
 // const-iterable
-decltype(auto) to_unconst_iterable(ranges::range auto&& R)
+decltype(auto) to_unconst_iterable(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::Passive, property::ForceDisable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::Passive, property::ForceDisable>(FWD(R));
 }
-decltype(auto) to_const_iterable(ranges::range auto&& R)
+decltype(auto) to_const_iterable(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::Passive, property::ForceEnable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::Passive, property::ForceEnable>(FWD(R));
 }
 
 // borrowed
-decltype(auto) to_unborrowed(ranges::range auto&& R)
+decltype(auto) to_unborrowed(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::Passive, property::Passive, property::ForceDisable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::Passive, property::Passive, property::ForceDisable>(FWD(R));
 }
-decltype(auto) to_borrowed(ranges::range auto&& R)
+decltype(auto) to_borrowed(std::ranges::range auto&& R)
 {
     using Range = std::decay_t<decltype(R)>;
-    return convert_to_view<Range, ranges::range_value_t<Range>, ranges::range_reference_t<Range>, property::Passive, property::Passive, property::ForceEnable>(FWD(R));
+    return convert_to_view<Range, std::ranges::range_value_t<Range>, std::ranges::range_reference_t<Range>, property::Passive, property::Passive, property::ForceEnable>(FWD(R));
 }
 
 // constant
-decltype(auto) to_constant(ranges::range auto&& R)
+decltype(auto) to_constant(std::ranges::range auto&& R)
 { return view_future::const_(FWD(R)); }
 
 // cannot force non-constant (UB)
+#undef FWD
