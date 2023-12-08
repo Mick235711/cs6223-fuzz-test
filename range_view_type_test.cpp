@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include <cstdio>
 #include <range/v3/all.hpp>
 namespace ranges_v3 = ::ranges;
 namespace views_v3 = ::ranges::views;
@@ -19,12 +20,27 @@ struct test_all_aux<typelist<Ranges...>>
     }
 };
 
+int total_count, err_count;
+
 template<typename TList = random_ranges>
 void test_all(auto F)
 {
+    total_count = 0; err_count = 0;
     test_all_aux<TList>::call(std::move(F));
+    std::printf("Total: %d, Error: %d\n", total_count, err_count);
 }
 
+#ifdef COUNT_ERROR
+#define EXPECT_SAME(T, R1, ...) \
+    ++total_count; \
+    if (!std::is_same_v<R1, __VA_ARGS__>) ++err_count
+#define EXPECT_EQAL(T, R1, ...) \
+    ++total_count; \
+    if ((R1) != (__VA_ARGS__)) ++err_count
+#define EXPECT_HOLD(T, ...) \
+    ++total_count; \
+    if (!(__VA_ARGS__)) ++err_count
+#else
 #define EXPECT_SAME(T, R1, ...) \
     EXPECT_TRUE((std::is_same_v<R1, __VA_ARGS__>)) \
         << type_str<T>() << " -> " << type_str<R1>() << " => " << type_str<__VA_ARGS__>()
@@ -32,6 +48,7 @@ void test_all(auto F)
     EXPECT_EQ(R1, __VA_ARGS__) << type_str<T>()
 #define EXPECT_HOLD(T, ...) \
     EXPECT_TRUE((__VA_ARGS__)) << type_str<T>()
+#endif
 
 TEST(MyTestSuite, empty_std) {
     test_all([]<typename T>() {
@@ -316,7 +333,9 @@ TEST(MyTestSuite, transform_std) {
             using V = decltype(v);
             EXPECT_SAME(T, ranges_std::range_reference_t<V>, int);
             EXPECT_SAME(T, ranges_std::range_value_t<V>, int);
-            // EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+#ifdef COUNT_ERROR
+            EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+#endif
             EXPECT_EQAL(T, ranges_std::common_range<V>, ranges_std::common_range<T>);
             EXPECT_EQAL(T, ranges_std::sized_range<V>, ranges_std::sized_range<T>);
             EXPECT_EQAL(T, ranges_std::range<const V>, ranges_std::range<const T>);
@@ -335,10 +354,12 @@ TEST(MyTestSuite, transform_v3) {
             using V = decltype(v);
             EXPECT_SAME(T, ranges_v3::range_reference_t<V>, int);
             EXPECT_SAME(T, ranges_v3::range_value_t<V>, int);
-            // EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
-            // EXPECT_EQAL(T, ranges_v3::common_range<V>, ranges_v3::common_range<T>);
+#ifdef COUNT_ERROR
+            EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+            EXPECT_EQAL(T, ranges_v3::common_range<V>, ranges_v3::common_range<T>);
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
             EXPECT_EQAL(T, ranges_v3::sized_range<V>, ranges_v3::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
             EXPECT_HOLD(T, !ranges_v3::borrowed_range<V>);
         }
     });
@@ -373,7 +394,9 @@ TEST(MyTestSuite, take_v3) {
             EXPECT_SAME(T, range_category<V>, range_category<T>);
             EXPECT_EQAL(T, ranges_v3::common_range<V>, ranges_v3::sized_range<T> && ranges_v3::random_access_range<T>);
             EXPECT_EQAL(T, ranges_v3::sized_range<V>, ranges_v3::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#ifdef COUNT_ERROR
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
         }
     });
 }
@@ -405,10 +428,12 @@ TEST(MyTestSuite, take_while_v3) {
             using V = decltype(v);
             EXPECT_SAME(T, ranges_v3::range_reference_t<V>, ranges_v3::range_reference_t<T>);
             EXPECT_SAME(T, ranges_v3::range_value_t<V>, ranges_v3::range_value_t<T>);
-            // EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+#ifdef COUNT_ERROR
+            EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
             EXPECT_HOLD(T, !ranges_v3::common_range<V>);
             EXPECT_HOLD(T, !ranges_v3::sized_range<V>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
             EXPECT_HOLD(T, !ranges_v3::borrowed_range<V>);
             EXPECT_EQAL(T, view_future::constant_range<V>, view_future::constant_range<T>);
         }
@@ -427,7 +452,9 @@ TEST(MyTestSuite, drop_std) {
             EXPECT_SAME(T, range_category<V>, range_category<T>);
             EXPECT_EQAL(T, ranges_std::common_range<V>, ranges_std::common_range<T>);
             EXPECT_EQAL(T, ranges_std::sized_range<V>, ranges_std::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_std::range<const V>, ranges_std::range<const T>);
+#ifdef COUNT_ERROR
+            EXPECT_EQAL(T, ranges_std::range<const V>, ranges_std::range<const T>);
+#endif
             EXPECT_EQAL(T, view_future::constant_range<V>, view_future::constant_range<T>);
         }
     });
@@ -445,7 +472,9 @@ TEST(MyTestSuite, drop_v3) {
             EXPECT_SAME(T, range_category<V>, range_category<T>);
             EXPECT_EQAL(T, ranges_v3::common_range<V>, ranges_v3::common_range<T>);
             EXPECT_EQAL(T, ranges_v3::sized_range<V>, ranges_v3::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#ifdef COUNT_ERROR
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
         }
     });
 }
@@ -502,7 +531,9 @@ TEST(MyTestSuite, common_v3) {
                 clamp_down<range_category<T>, std::forward_iterator_tag>>);
             EXPECT_HOLD(T, ranges_v3::common_range<V>);
             EXPECT_EQAL(T, ranges_v3::sized_range<V>, ranges_v3::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#ifdef COUNT_ERROR
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
         }
     });
 }
@@ -516,10 +547,12 @@ TEST(MyTestSuite, reverse_std) {
             using V = decltype(v);
             EXPECT_SAME(T, ranges_std::range_reference_t<V>, ranges_std::range_reference_t<T>);
             EXPECT_SAME(T, ranges_std::range_value_t<V>, ranges_std::range_value_t<T>);
-            // EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+#ifdef COUNT_ERROR
+            EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+            EXPECT_EQAL(T, ranges_std::range<const V>, ranges_std::range<const T>);
+#endif
             EXPECT_HOLD(T, ranges_std::common_range<V>);
             EXPECT_EQAL(T, ranges_std::sized_range<V>, ranges_std::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_std::range<const V>, ranges_std::range<const T>);
             EXPECT_EQAL(T, view_future::constant_range<V>, view_future::constant_range<T>);
         }
     });
@@ -533,10 +566,12 @@ TEST(MyTestSuite, reverse_v3) {
             using V = decltype(v);
             EXPECT_SAME(T, ranges_v3::range_reference_t<V>, ranges_v3::range_reference_t<T>);
             EXPECT_SAME(T, ranges_v3::range_value_t<V>, ranges_v3::range_value_t<T>);
-            // EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+#ifdef COUNT_ERROR
+            EXPECT_SAME(T, range_category<V>, clamp_down<range_category<T>, std::random_access_iterator_tag>);
+            EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
+#endif
             EXPECT_HOLD(T, ranges_v3::common_range<V>);
             EXPECT_EQAL(T, ranges_v3::sized_range<V>, ranges_v3::sized_range<T>);
-            // EXPECT_EQAL(T, ranges_v3::range<const V>, ranges_v3::range<const T>);
             EXPECT_EQAL(T, view_future::constant_range<V>, view_future::constant_range<T>);
         }
     });
